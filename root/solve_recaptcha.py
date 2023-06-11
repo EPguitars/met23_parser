@@ -1,17 +1,14 @@
+import requests
+from rich import print
+from httpx import Client
 
-from selectolax.parser import HTMLParser
+from tools import switch_header
 
+header = switch_header()
+headers = {"User-Agent" : next(header)}
+print(header.__sizeof__())
 
-def solve(client, captcha, HEADERS):
-    ask_reload = client.post(
-        f"https://www.google.com/recaptcha/api2/reload?k={captcha}", headers=HEADERS)
-    ask_userverify = client.post(
-        f"https://www.google.com/recaptcha/api2/userverify?k={captcha}", headers=HEADERS)
+#client = Client(headers=headers)
 
-    
+#r = client.get("https://httpbin.org/")
 
-
-def get_captcha(response):
-    """ extract data-sitekey, e need it to solve captcha """
-    captcha = response.css_first("div#recaptcha-el").attrs["data-sitekey"]
-    return captcha

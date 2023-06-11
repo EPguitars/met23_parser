@@ -11,3 +11,6 @@ class MetalTreeNode:
 
     def get_child(self):
         return self.children[1]
+    
+    def get_value(self):
+        return self.value

@@ -6,15 +6,15 @@ Main goal is to scrape all data about item and save it to csv
 import logging
 import sys
 from dataclasses import dataclass
-from urllib.parse import urljoin
 import time
+import random
 
 from httpx import Client
-from selectolax.parser import HTMLParser, Node
+from selectolax.parser import HTMLParser
 from rich import print
 
 from metal_tree import MetalTreeNode
-from solve_recaptcha import solve, get_captcha
+from tools import switch_user_agent, switch_proxy
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -23,13 +23,6 @@ formatter = logging.Formatter(
     "[%(asctime)s] %(levelname)s:%(name)s:%(lineno)d:%(message)s")
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
-
-HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-           "AppleWebKit/537.36 (KHTML, like Gecko) " +
-           "Chrome/109.0.0.0 Safari/537.36"}
-
-MAIN_URL = "https://multicity.23met.ru/"
-PROXIES = {"http://": "http://91.148.146.136:55443"}
 
 
 @dataclass
@@ -51,7 +44,8 @@ class SubCategory:
     """ usesful data for sub-categories """
     name: str
     href: str
-    #size: str
+    # size: str
+    main_category: str
 
 
 def extract_name(tag):
@@ -74,8 +68,19 @@ def is_valid(data: list) -> bool:
         return True
 
 
+def client_entity():
+    """ generates a new client session """
+    user_agent = switch_user_agent()
+    proxy = switch_proxy()
+    
+    headers = {"User-Agent": next(user_agent)}
+    proxies = next(proxy)
+    client = Client(headers=headers)
+
+
 def get_main_page(client: Client, url) -> Response:
     """ get main page html """
+
     response = client.get(url, headers=HEADERS)
     page = HTMLParser(response.text)
 
@@ -107,17 +112,21 @@ def get_main_categories(page: Response) -> list:
     return parse_navbar(main_categories + toggle_data)
 
 
-def scrape_subcategories(client: Client, url: str, tree):
+def scrape_subcategories(client: Client, child: MetalTreeNode):
     """ extract subcategories """
-    response = client.get(url, headers=HEADERS)
+    current_node = child.get_value()
+    response = client.get(current_node.href, headers=HEADERS)
     page = HTMLParser(response.text)
+    print(response.status_code)
     subcategories = page.css("nav#left-container > ul[class='tabs '] > li > a")
 
     for category in subcategories:
         new_child = SubCategory(name=extract_name(category),
-                                href=extract_href(category))
-        tree.add_child(new_child)
-    
+                                href=extract_href(category),
+                                main_category=current_node.name)
+        child.add_child(MetalTreeNode(new_child))
+
+
 def parse_met23():
     """ main logic for parser """
     client = Client(proxies=PROXIES)
@@ -125,27 +134,41 @@ def parse_met23():
     main_page = get_main_page(client, MAIN_URL)
     tree = MetalTreeNode("23.met.ru")
     # always need to check response status code
-    # if problems with connection try rotate proxy
+    # if problems with connection try change client
     if main_page.status == 200:
+
+        print("succes with main page")
         main_categories = get_main_categories(main_page)
         # add our main categories to tree
         for category in main_categories:
-            tree.add_child(category)
-            
+            tree.add_child(MetalTreeNode(category))
+
     elif main_page.status == 429:
-        captcha = get_captcha(main_page.html_body)
-        solve(client, captcha, HEADERS)
+        print("Oops, you blocked!")
+        # solve_captcha(MAIN_URL)
+        # solve_captcha()
 
     else:
-        print("Oops, you blocked!")
+
         print(main_page.status)
 
         # rotate proxy
 
     # first try to scrape one category
     time.sleep(1)
-    scrape_subcategories(client, tree.get_child().href, tree)
-    print(tree.get_children())
+
+    main_categories = tree.get_children()
+
+    for category in main_categories:
+        print(category.get_value())
+        scrape_subcategories(client, category)
+        current_node = category.get_children()
+
+        for child in current_node:
+            print(child.get_value())
+        time.sleep(5)
+        # for node in tree.get_children():
+    #    print(node.get_value())
     # for node in tree.get_children():
     #     scrape_subcategories(client, node.href)
 

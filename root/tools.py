@@ -1,8 +1,15 @@
+# pylint: disable = W0718
 """ module contains proxy and header generators """
+import time
+
+from rich import print
 from httpx import Client
 from httpx._exceptions import (RemoteProtocolError,
                                ConnectTimeout,
-                               ProxyError)
+                               ProxyError,
+                               ReadError,
+                               ReadTimeout,
+                               ConnectError)
 
 UA_PATH = 'root/user-agents-list.txt'
 PROXIES_PATH = 'root/proxies.txt'
@@ -29,6 +36,12 @@ def good_proxy(proxy_attempt: str):
         return False
     except ProxyError:
         return False
+    except ReadError:
+        return False
+    except ReadTimeout:
+        return False
+    except ConnectError:
+        return False
     # Need this block to catch and register unexpected exceptions
     except Exception as exception:
         print(f"Unregistered Exception: {exception.__class__.__name__}")
@@ -43,11 +56,16 @@ def good_proxy(proxy_attempt: str):
 def switch_proxy() -> str:
     """ returns working proxy """
     with open(PROXIES_PATH, 'r', encoding='utf-8') as file:
+        counter = 1
         for line in file:
+            print(f"proxies {counter} of {300}")
+            counter += 1
             proxy = line.strip()
 
             if good_proxy(proxy):
-                yield {"http://": proxy, "https://": proxy}
+                print(f"Proxy found: {proxy}")
+                time.sleep(2)
+                yield {"http://": f"http://{proxy}", "https://": f"http://{proxy}"}
             else:
                 continue
 

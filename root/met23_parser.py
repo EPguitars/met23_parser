@@ -1,4 +1,4 @@
-# pylint: disable = C0321
+# pylint: disable = C0321, E0401, W0622
 """
 Scraper and parser for met23.ru website
 Main goal is to scrape all data about item and save it to csv
@@ -12,9 +12,13 @@ import random
 from httpx import Client
 from selectolax.parser import HTMLParser
 from rich import print
+from httpx._exceptions import (RemoteProtocolError, ConnectTimeout,
+                               ProxyError, ReadTimeout,
+                               ReadError, ConnectError)
 
 from metal_tree import MetalTreeNode
 from tools import switch_user_agent, switch_proxy
+
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -23,6 +27,8 @@ formatter = logging.Formatter(
     "[%(asctime)s] %(levelname)s:%(name)s:%(lineno)d:%(message)s")
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
+
+MAIN_URL = "https://multicity.23met.ru/"
 
 
 @dataclass
@@ -54,7 +60,7 @@ def extract_name(tag):
 
 
 def extract_href(tag):
-    """ ectracting href data from "li" """
+    """ extracting href data from "li" """
     return tag.css_first("a").attrs['href']
 
 
@@ -70,18 +76,55 @@ def is_valid(data: list) -> bool:
 
 def client_entity():
     """ generates a new client session """
+    print("Creating a new client session")
     user_agent = switch_user_agent()
     proxy = switch_proxy()
-    
-    headers = {"User-Agent": next(user_agent)}
-    proxies = next(proxy)
-    client = Client(headers=headers)
+
+    while proxy.__sizeof__() > 0:
+        headers = {"User-Agent": next(user_agent)}
+        proxies = next(proxy)
+        client = Client(headers=headers, proxies=proxies)
+
+        yield client
+    print("Out of proxies")
+    sys.exit()
+
+
+client_generator = client_entity()
+
+
+def get_connection(client: Client, url: str, response=None):
+    """ verify connection """
+    print("trying connection")
+
+    try:
+        response = client.get(url)
+        print("Chance for connection")
+    except (RemoteProtocolError,
+            ConnectTimeout,
+            ProxyError,
+            ReadError,
+            ReadTimeout,
+            ConnectError):
+
+        response = None
+
+    except Exception as exception:
+        print(f"Unregistered Exception: {exception.__class__.__name__}")
+        response = None
+
+    finally:
+        return response
 
 
 def get_main_page(client: Client, url) -> Response:
     """ get main page html """
+    response = get_connection(client, url)
 
-    response = client.get(url, headers=HEADERS)
+    while not response or response.status_code != 200:
+        client = next(client_generator)
+        response = get_connection(client, url)
+
     page = HTMLParser(response.text)
 
     return Response(html_body=page, status=response.status_code)
@@ -115,7 +158,12 @@ def get_main_categories(page: Response) -> list:
 def scrape_subcategories(client: Client, child: MetalTreeNode):
     """ extract subcategories """
     current_node = child.get_value()
-    response = client.get(current_node.href, headers=HEADERS)
+    response = get_connection(client, current_node.href)
+
+    while not response or response.status_code != 200:
+        client = next(client_generator)
+        response = get_connection(client, current_node.href)
+
     page = HTMLParser(response.text)
     print(response.status_code)
     subcategories = page.css("nav#left-container > ul[class='tabs '] > li > a")
@@ -129,7 +177,8 @@ def scrape_subcategories(client: Client, child: MetalTreeNode):
 
 def parse_met23():
     """ main logic for parser """
-    client = Client(proxies=PROXIES)
+
+    client = next(client_generator)
 
     main_page = get_main_page(client, MAIN_URL)
     tree = MetalTreeNode("23.met.ru")
@@ -145,8 +194,6 @@ def parse_met23():
 
     elif main_page.status == 429:
         print("Oops, you blocked!")
-        # solve_captcha(MAIN_URL)
-        # solve_captcha()
 
     else:
 
@@ -166,7 +213,7 @@ def parse_met23():
 
         for child in current_node:
             print(child.get_value())
-        time.sleep(5)
+        time.sleep(30)
         # for node in tree.get_children():
     #    print(node.get_value())
     # for node in tree.get_children():

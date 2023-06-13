@@ -3,30 +3,21 @@
 Scraper and parser for met23.ru website
 Main goal is to scrape all data about item and save it to csv
 """
-import logging
-import sys
 from dataclasses import dataclass
 import time
 import random
+import sys
 
 from httpx import Client
 from selectolax.parser import HTMLParser
 from rich import print
-from httpx._exceptions import (RemoteProtocolError, ConnectTimeout,
-                               ProxyError, ReadTimeout,
-                               ReadError, ConnectError)
+from httpx._exceptions import (RemoteProtocolError, ConnectTimeout, ProxyError,
+                               ReadTimeout, ReadError, ConnectError)
 
 from metal_tree import MetalTreeNode
 from tools import switch_user_agent, switch_proxy
-
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.WARNING)
-stream_handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter(
-    "[%(asctime)s] %(levelname)s:%(name)s:%(lineno)d:%(message)s")
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
+from scrape_subcategories import run_browser
+import logger
 
 MAIN_URL = "https://multicity.23met.ru/"
 
@@ -45,15 +36,6 @@ class MainCategory:
     href: str
 
 
-@dataclass
-class SubCategory:
-    """ usesful data for sub-categories """
-    name: str
-    href: str
-    # size: str
-    main_category: str
-
-
 def extract_name(tag):
     """ extracting text data from "li" """
     return tag.text()
@@ -67,7 +49,7 @@ def extract_href(tag):
 def is_valid(data: list) -> bool:
     """ check for changes in website structure """
     if len(data) == 0:
-        logger.warning(
+        logger.logger.warning(
             "Seems that website changed structure. Please recheck code and website")
         return False
     else:
@@ -155,26 +137,6 @@ def get_main_categories(page: Response) -> list:
     return parse_navbar(main_categories + toggle_data)
 
 
-def scrape_subcategories(client: Client, child: MetalTreeNode):
-    """ extract subcategories """
-    current_node = child.get_value()
-    response = get_connection(client, current_node.href)
-
-    while not response or response.status_code != 200:
-        client = next(client_generator)
-        response = get_connection(client, current_node.href)
-
-    page = HTMLParser(response.text)
-    print(response.status_code)
-    subcategories = page.css("nav#left-container > ul[class='tabs '] > li > a")
-
-    for category in subcategories:
-        new_child = SubCategory(name=extract_name(category),
-                                href=extract_href(category),
-                                main_category=current_node.name)
-        child.add_child(MetalTreeNode(new_child))
-
-
 def parse_met23():
     """ main logic for parser """
 
@@ -205,15 +167,12 @@ def parse_met23():
     time.sleep(1)
 
     main_categories = tree.get_children()
-
-    for category in main_categories:
-        print(category.get_value())
-        scrape_subcategories(client, category)
-        current_node = category.get_children()
-
-        for child in current_node:
-            print(child.get_value())
-        time.sleep(30)
+    # to get final links to tables
+    # better to use headless browser
+    print(main_categories)
+    run_browser(main_categories)
+        
+    time.sleep(30)
         # for node in tree.get_children():
     #    print(node.get_value())
     # for node in tree.get_children():

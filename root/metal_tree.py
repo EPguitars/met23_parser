@@ -16,3 +16,4 @@ class MetalTreeNode:
         return self.value
 
 
+tree = MetalTreeNode("23.met.ru")

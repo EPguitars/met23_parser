@@ -65,7 +65,7 @@ def switch_proxy() -> str:
             if good_proxy(proxy):
                 print(f"Proxy found: {proxy}")
                 time.sleep(2)
-                yield {"http://": f"http://{proxy}", "https://": f"http://{proxy}"}
+                yield proxy
             else:
                 continue
 

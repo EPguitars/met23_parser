@@ -1,20 +1,22 @@
-# pylint: disable = C0321, E0401, W0622
+# pylint: disable = all
 """
 Scraper and parser for met23.ru website
 Main goal is to scrape all data about item and save it to csv
 """
 from dataclasses import dataclass
 import time
-import random
 import sys
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
+import pickle
 from httpx import Client
 from selectolax.parser import HTMLParser
 from rich import print
 from httpx._exceptions import (RemoteProtocolError, ConnectTimeout, ProxyError,
                                ReadTimeout, ReadError, ConnectError)
 
-from metal_tree import MetalTreeNode
+from metal_tree import tree, MetalTreeNode
 from tools import switch_user_agent, switch_proxy
 from scrape_subcategories import run_browser
 import logger
@@ -63,8 +65,10 @@ def client_entity():
     proxy = switch_proxy()
 
     while proxy.__sizeof__() > 0:
+        new_proxy = next(proxy)
         headers = {"User-Agent": next(user_agent)}
-        proxies = next(proxy)
+        proxies = {"http://": f"http://{new_proxy}",
+                   "https://": f"http://{new_proxy}"}
         client = Client(headers=headers, proxies=proxies)
 
         yield client
@@ -87,8 +91,8 @@ def get_connection(client: Client, url: str, response=None):
             ProxyError,
             ReadError,
             ReadTimeout,
-            ConnectError):
-
+            ConnectError) as exception:
+        print(f"{exception} when get_connection")
         response = None
 
     except Exception as exception:
@@ -137,13 +141,13 @@ def get_main_categories(page: Response) -> list:
     return parse_navbar(main_categories + toggle_data)
 
 
-def parse_met23():
+async def parse_met23():
     """ main logic for parser """
 
     client = next(client_generator)
 
     main_page = get_main_page(client, MAIN_URL)
-    tree = MetalTreeNode("23.met.ru")
+    
     # always need to check response status code
     # if problems with connection try change client
     if main_page.status == 200:
@@ -160,23 +164,40 @@ def parse_met23():
     else:
 
         print(main_page.status)
-
-        # rotate proxy
-
-    # first try to scrape one category
     time.sleep(1)
 
-    main_categories = tree.get_children()
+    
     # to get final links to tables
     # better to use headless browser
-    print(main_categories)
-    run_browser(main_categories)
-        
-    time.sleep(30)
-        # for node in tree.get_children():
-    #    print(node.get_value())
-    # for node in tree.get_children():
-    #     scrape_subcategories(client, node.href)
+    executor = ThreadPoolExecutor()
+    number_of_items = await loop.run_in_executor(executor, run_browser, tree.children)
+
+    with open("tree.pkl", "wb") as file:
+        pickle.dump(tree, file)
+    # Create a generator with all items and handle all data
+    def next_node():
+        for child in tree.get_children():
+            for node in child.get_children():
+                yield node
+
+    next_link = next_node()
+    print(next(next_link))
+    #await handle_urls(next_link, number_of_items)
+    print("DONE!")
+
+    #time.sleep(30)
+
+if __name__ == "__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(parse_met23())
+    loop.close()
+
+# with open("tree.pkl", "rb") as file:
+#     temp = pickle.load(file)
 
 
-parse_met23()
+
+# print(temp.get_value())
+
+
+# x = temp.get_children()[0]
